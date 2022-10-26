@@ -3,7 +3,7 @@
 
 environment need the latest Pytorch version 
 
-the SEED data can be downloaded: https://bcmi.sjtu.edu.cn/~seed/index.html \\
-The DEAP dataset can be downlaod @http://www.eecs.qmul.ac.uk/mmv/datasets/deap/\\
-the code refer to https://github.com/tim-learn/SHOT SHOT++ and COwv \\
-and the paper refer to [**Do We Really Need to Access the Source Data? Source Hypothesis Transfer for Unsupervised Domain Adaptation**](https://arxiv.org/abs/2002.08546)
+## the SEED data can be downloaded: https://bcmi.sjtu.edu.cn/~seed/index.html \\
+## The DEAP dataset can be downlaod @http://www.eecs.qmul.ac.uk/mmv/datasets/deap/\\
+## the code refer to https://github.com/tim-learn/SHOT SHOT++ and COwv \\
+##　and the paper refer to [**Do We Really Need to Access the Source Data? Source Hypothesis Transfer for Unsupervised Domain Adaptation**](https://arxiv.org/abs/2002.08546)
