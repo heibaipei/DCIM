@@ -9,10 +9,12 @@ import torch.optim as optim
 from torchvision import transforms
 import network, loss
 from torch.utils.data import DataLoader
-# from data_list import ImageList_idx
-# from load2 import load_data_subject
 from DANN_all_data import load_data_subject
 from loss import CLIPContrastive
+import numpy as np
+import torch
+from scipy import signal
+import math
 import random, pdb, math, copy
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
@@ -26,12 +28,8 @@ import time
 matplotlib.use('Agg')
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-import numpy as np
-import torch
-from scipy import signal
 
-import math
-# import cv2
+
 
 
 import random
@@ -139,7 +137,6 @@ class Transform:
         cutout_signal = cutout_signal.T
 
         return cutout_signal
-    # mic
     
 
     def move_avg(self,a,n, mode="same"):
@@ -228,7 +225,7 @@ class Transform:
         noise = noise[:,None]
         noised_signal = signal + noise
         noised_signal = noised_signal.T
-        print(noised_signal.shape)
+        # print(noised_signal.shape)
         return noised_signal
     
     
@@ -264,20 +261,6 @@ class Transform:
 
             noised_signal = noised_signal[None,:]
             noised_signal_R[i,:]=noised_signal
-        
-        
-        
-        
-           # Calculate signal power and convert to dB
-        
-        #print('x_watts : {}'.format(x_watts.shape))
-        
-        
-        
-        #print('sig_avg_watts : {}'.format(sig_avg_watts))
-        
-        
-        #print(noised_signal.shape)
 
         return noised_signal_R
     
@@ -378,21 +361,6 @@ class RandomApply(nn.Module):
             return x
         return self.fn(x)
 
-def image_train(resize_size=256, crop_size=224, alexnet=False):
-    if not alexnet:
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
-    else:
-        normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
-        
-    return  transforms.Compose([
-        transforms.Resize((resize_size, resize_size)),
-        # transforms.RandomCrop(crop_size),
-        # transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        normalize
-    ])
-
 
 class MyDataset():
     def __init__(self, data, labels):
@@ -401,38 +369,11 @@ class MyDataset():
 
     def __getitem__(self, index):
         img, target = self.eeg[index], self.labels[index]
-        return img, target
+        return img, target, index
 
     def __len__(self):
         return len(self.eeg)
 
-# def image_test(resize_size=256, crop_size=224, alexnet=False):
-#     if not alexnet:
-#         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-#                                          std=[0.229, 0.224, 0.225])
-#     else:
-#         normalize = Normalize(meanfile='./ilsvrc_2012_mean.npy')
-#     return  transforms.Compose([
-#         transforms.Resize((resize_size, resize_size)),
-#         transforms.CenterCrop(crop_size),
-#         transforms.ToTensor(),
-#         normalize
-#     ])
-    
-# def data_load(args): 
-#     ## prepare data
-#     dsets = {}
-#     dset_loaders = {}
-#     train_bs = args.batch_size
-#     txt_tar = open(args.t_dset_path).readlines()
-#     txt_test = open(args.test_dset_path).readlines()
-    
-#     dsets["target"] = ImageList_idx(txt_tar, transform=image_train())
-#     dset_loaders["target"] = DataLoader(dsets["target"], batch_size=train_bs, shuffle=True, num_workers=args.worker, drop_last=False)
-#     dsets["test"] = ImageList_idx(txt_test, transform=image_test())
-#     dset_loaders["test"] = DataLoader(dsets["test"], batch_size=train_bs*3, shuffle=False, num_workers=args.worker, drop_last=False)
-    
-#     return dset_loaders
 
 def digit_load(args):
     index = args.index
@@ -443,7 +384,7 @@ def digit_load(args):
     print("domain_label", domain_label.shape)
     print("target_data", target_data.shape)
     print("target_label", target_label.shape)
-    # print("target_label.sum()", target_label.sum())
+
 
     train_source = MyDataset(source_data, source_label)
     domian_source = MyDataset(source_data, domain_label)
@@ -454,7 +395,7 @@ def digit_load(args):
 
     dset_loaders["source_domain"] = DataLoader(domian_source, batch_size = train_bs, shuffle=True,
                                                num_workers=args.worker, drop_last=False)
-    middle = 2400
+    sd_m = 3000
 
     train_target = MyDataset(target_data, target_label)
     test_target = MyDataset(target_data, target_label)
@@ -504,42 +445,41 @@ def evaluation(loader, netF1, netC1, netF2, netC2,  args, cnt):
     for _ in tqdm(range(len(loader))):
         data = iter_test.next()
         inputs = data[0]
-        labels = data[1].cuda()
+        labels = (data[1]+1).cuda()
         inputs = inputs.cuda()
         feas1 = netF1(inputs)
         outputs1 = netC1(feas1)
         feas2 = netF2(inputs)
         outputs2 = netC2(feas2)
         feas = feas1 + feas2
-        outputs = outputs1 + outputs2
+        outputs = outputs2 + outputs1
         if start_test:
             all_fea = feas.float()
             all_output = outputs.float()
-            all_label = labels.float()
+            all_label = (labels).float()
             start_test = False
         else:
             all_fea = torch.cat((all_fea, feas.float()), 0)
             all_output = torch.cat((all_output, outputs.float()), 0)
-            all_label = torch.cat((all_label, labels.float()), 0)
+            all_label = torch.cat((all_label, (labels).float()), 0)
             
     _, predict = torch.max(all_output, 1)
 
-    # accuracy_return = torch.sum(torch.squeeze(predict).float() == all_label).item() / float(all_label.size()[0])
-    # mean_ent = torch.mean(loss.Entropy(nn.Softmax(dim=1)(all_output))).data.item()
 
-    if args.dset=='VISDA-C':
-        matrix = confusion_matrix(all_label.cpu().numpy(), torch.squeeze(predict).float().cpu().numpy())
-        acc_return = matrix.diagonal()/matrix.sum(axis=1) * 100
-        aacc = acc_return.mean()
-        aa = [str(np.round(i, 2)) for i in acc_return]
-        acc_return = ' '.join(aa)
+    mean_ent = torch.mean(loss.Entropy(nn.Softmax(dim=1)(all_output))).data.item()
+
+    # print("Model Prediction : Accuracy = {:.2f}%", accuracy_return)
+    print("mean_Entropy", mean_ent)
+
+
 
     # all_output_logit = all_output
     all_output = nn.Softmax(dim=1)(all_output)
     all_fea_orig = all_fea
     ent = torch.sum(-all_output * torch.log(all_output + args.epsilon2), dim=1)
+    unknown_weight = 1 - ent / np.log(args.class_num) ## 代表结果的熵
 
-    unknown_weight = 1 - ent / np.log(args.class_num)
+    # print("unknown_weight", unknown_weight)
 
     accuracy = torch.sum(torch.squeeze(predict).float() == all_label).item() / float(all_label.size()[0])
     
@@ -592,8 +532,6 @@ def evaluation(loader, netF1, netC1, netF2, netC2,  args, cnt):
     log_str = 'Model Prediction : Accuracy = {:.2f}%'.format(accuracy * 100) + '\n'
     log_str2 = 'GMM prediction: acc = {:.2f}%'.format(acc*100) + '\n'
 
-    if args.dset=='VISDA-C':
-        log_str += 'VISDA-C classwise accuracy : {:.2f}%\n{}'.format(aacc, acc_return) + '\n'
 
     args.out_file.write(log_str + '\n')
     args.out_file.flush()
@@ -617,11 +555,7 @@ def evaluation(loader, netF1, netC1, netF2, netC2,  args, cnt):
     else:
         JMDS = LPG
 
-    sample_weight = JMDS
-
-    if args.dset=='VISDA-C':
-        return aff, sample_weight, aacc/100
-    
+    sample_weight = JMDS  
     return aff, sample_weight, accuracy
     
 def KLLoss(input_, target_, coeff, args):
@@ -630,18 +564,25 @@ def KLLoss(input_, target_, coeff, args):
     kl_loss *= coeff
     return kl_loss.mean(dim=0)
 
-def mixup(x, c_batch, t_batch, netF,  netC, args, iter_num):
 
-    all_c = c_batch ## 权重
-    all_t = t_batch  ## GMM predict
+# def mixup(x, c_batch, t_batch, netF, netB, netC, args):
+#     # weight mixup
+#     if args.alpha==0:
+#         outputs = netC(netB(netF(x)))
+#         return KLLoss(outputs, t_batch, c_batch, args)
+#     lam = (torch.from_numpy(np.random.beta(args.alpha, args.alpha, [len(x)]))).float().cuda()
+#     t_batch = torch.eye(args.class_num)[t_batch.argmax(dim=1)].cuda()
+#     shuffle_idx = torch.randperm(len(x))
+#     mixed_x = (lam * x.permute(1,2,3,0) + (1 - lam) * x[shuffle_idx].permute(1,2,3,0)).permute(3,0,1,2)  ## 通道的混合融合
+#     mixed_c = lam * c_batch + (1 - lam) * c_batch[shuffle_idx]
+#     mixed_t = (lam * t_batch.permute(1,0) + (1 - lam) * t_batch[shuffle_idx].permute(1,0)).permute(1,0)
+#     mixed_x, mixed_c, mixed_t = map(torch.autograd.Variable, (mixed_x, mixed_c, mixed_t))
+#     mixed_outputs = netC(netB(netF(mixed_x)))
+#     return KLLoss(mixed_outputs, mixed_t, mixed_c, args)
 
-    n = 19
-    if iter_num % n ==0:
-        c_batch = all_c[(n-1)*128:24000]
-        t_batch = all_t[(n-1)*128:24000]
-    else:
-        c_batch = all_c[((iter_num-1) % n)*128: (iter_num % n)*128]
-        t_batch = all_t[((iter_num-1) % n)*128: (iter_num % n)*128]
+
+def mixup(x, c_batch, t_batch, netF, netC, args, iter_num):
+
 
 
     # weight mixup
@@ -655,35 +596,21 @@ def mixup(x, c_batch, t_batch, netF,  netC, args, iter_num):
     t_batch = torch.eye(args.class_num)[t_batch.argmax(dim=1)].cuda()
     shuffle_idx = torch.randperm(len(x))
 
-    # print("x.shape", x.shape) #128*128
-    # print("c_batch.shape", c_batch.shape) # the wight of GMM
-    # print("t_batch.shape", t_batch.shape)  # the predict of GMM
 
     mixed_x = (lam * x.permute(1,0) + (1 - lam) * x[shuffle_idx].permute(1,0))
-
-
     mixed_c = lam * c_batch + (1 - lam) * c_batch[shuffle_idx]
     mixed_t = (lam * t_batch.permute(1,0) + (1 - lam) * t_batch[shuffle_idx].permute(1,0))
     mixed_x, mixed_c, mixed_t = map(torch.autograd.Variable, (mixed_x.permute(1,0), mixed_c, mixed_t.permute(1,0)))
-
     mixed_outputs = netC(netF(mixed_x))
-    # print("mixed_outputs.shape", mixed_outputs.shape)
-    # print("mixed_t.shape", mixed_t.shape)
-    # print("mixed_c.shape", mixed_c.shape)
+
     return KLLoss(mixed_outputs, mixed_t, mixed_c, args)
 
 def train_target(args):
     tenp_output_dir=args.output_dir
-
     netF1 = network.SeedBase().to(device)
     netF2 = network.SeedBase().to(device)
-
-    # a = args.bottleneck
-    # print("a###", a)
     netC1 = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).to(device)
     netC2 = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).to(device)
-
-
    
     args.modelpath = tenp_output_dir + '/source_F.pt'   
     netF1.load_state_dict(torch.load(args.modelpath))
@@ -703,69 +630,28 @@ def train_target(args):
     for k, v in netF2.named_parameters():
         param_group += [{'params': v, 'lr': args.lr}]
     for k, v in netF1.named_parameters():
-        param_group += [{'params': v, 'lr': args.lr}]  ## 是否要更新第二个model
-
-    # netF = network.Deapbase().to(device)
-    # # netB = network.feat_bottleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).device()
-    # netC = network.feat_classifier(type=args.layer, class_num = args.class_num, bottleneck_dim=args.bottleneck).to(device)
-    
+        param_group += [{'params': v, 'lr': args.lr}]  ##     
     
     # ####################################################################
-    # modelpath = args.output_dir_src + '/source_F.pt'
-    # print('modelpath: {}'.format(modelpath))
-    # netF.load_state_dict(torch.load(modelpath))
-    # # modelpath = args.output_dir_src + '/source_B.pt'
-    # # netB.load_state_dict(torch.load(modelpath))
-    # modelpath = args.output_dir_src + '/source_C.pt'
-    # netC.load_state_dict(torch.load(modelpath))
-    cnt = 0
-    param_group = []
-    # for k, v in netF.named_parameters():
-    #     if args.lr_decay1 > 0:
-    #         param_group += [{'params': v, 'lr': args.lr * args.lr_decay1}]
+    
+    # for k, v in netC1.named_parameters():
+    #     if args.lr_decay3 > 0:
+    #         param_group += [{'params': v, 'lr': args.lr * args.lr_decay3}]
     #     else:
     #         v.requires_grad = False
-    
-    # for k, v in netB.named_parameters():
-    #     if args.lr_decay2 > 0:
-    #         param_group += [{'params': v, 'lr': args.lr * args.lr_decay2}]
-    #     else:
-    #         v.requires_grad = False
-    
-    for k, v in netC1.named_parameters():
-        if args.lr_decay3 > 0:
-            param_group += [{'params': v, 'lr': args.lr * args.lr_decay3}]
-        else:
-            v.requires_grad = False
-    
-    resize_size = 256
-    crop_size = 224
-
-
-  
-    # augment1 = Transform.add_noise_with_SNR()
-    
-    # augment1 = transforms.Compose([
-    #     # transforms.Resize((resize_size, resize_size)),
-    #     transforms.RandomCrop(crop_size),
-    #     transforms.RandomHorizontalFlip(),
-    # ])
             
     optimizer = optim.SGD(param_group)
-    optimizer = op_copy(optimizer)
-    
+    optimizer = op_copy(optimizer)   
 
-    # dset_loaders = data_load(args)
+
     dset_loaders = digit_load(args)
+    cnt = 0
     
     epochs = []
-    accuracies = []
-    
+    accuracies = []    
     netF1.eval()
-    # netB.eval()
     netC1.eval()
     netF2.eval()
-    # netB.eval()
     netC2.eval()
     with torch.no_grad():
         # Compute JMDS score at offline & evaluation.
@@ -775,16 +661,12 @@ def train_target(args):
         epochs.append(cnt)
         accuracies.append(np.round(accuracy*100, 2))
     netF1.train()
-    # netB.train()
     netC1.train()
     netF2.train()
-    # netB.train()
-    netC2.train()
-    
-    uniform_ent = np.log(args.class_num)
-    
-    
-    args.max_epoch2 = 30
+    netC2.train()   
+
+    uniform_ent = np.log(args.class_num)      
+    args.max_epoch2 = 60
     max_iter = args.max_epoch * len(dset_loaders["target"])
     interval_iter = max_iter // (args.interval)
     iter_num = 0
@@ -795,45 +677,44 @@ def train_target(args):
     while iter_num < max_iter:
         optimizer.zero_grad()
         try:
-            inputs_test, label = iter_test.next()
+            inputs_test, label, tar_idx = iter_test.next()
         except:
             iter_test = iter(dset_loaders["target"])
-            inputs_test, label= iter_test.next()  ##  every time has 30
-    # while iter_num < max_iter:
-    #     try:
-    #         inputs_test, label, tar_idx = iter_test.next()
-    #     except:
-    #         iter_test = iter(dset_loaders["target"])
-    #         inputs_test, label, tar_idx = iter_test.next()
+            inputs_test, label, tar_idx= iter_test.next()  ##  every time has 30
 
         if inputs_test.size(0) == 1:
             continue
         
-        iter_num += 1
-        lr_scheduler(args, optimizer, iter_num=iter_num, max_iter=max_iter)
-        # print("tar_idx", tar_idx)
-        pred = soft_pseudo_label
-        pred_label = pred.argmax(dim=1)
-        
-        coeff, pred = map(torch.autograd.Variable, (coeff, pred))
+
         # factor = random.uniform(128)
-        # augment1 = Trans(x)
+        Trans = Transform()
+
         # temple = torch.reshape(inputs_test,(inputs_test.shape[0], 32, 4 ))
         # temple= temple.permute(1,0,2)
         # temple[31] = temple[31] * 0
-        # augment1 = temple.permute(1,0,2)
+        augment1 = Trans.add_noise(inputs_test, 10)
         # augment1 = torch.reshape(augment1, (inputs_test.shape[0],-1))      
 
-        images1 = torch.autograd.Variable(inputs_test)
+
+        iter_num += 1
+        lr_scheduler(args, optimizer, iter_num=iter_num, max_iter=max_iter)
+        pred = soft_pseudo_label[tar_idx]
+        pred_label = pred.argmax(dim=1)
+        
+        coeff, pred = map(torch.autograd.Variable, (coeff, pred))
+
+        images1 = torch.autograd.Variable(augment1)
         images1 = images1.cuda()
         coeff = coeff.cuda()
         pred = pred.cuda()
         pred_label = pred_label.cuda()
-        
-        CoWA_loss1 = mixup(images1, coeff, pred, netF1,  netC1, args, iter_num)
-        CoWA_loss2 = mixup(images1, coeff, pred, netF2,  netC2, args, iter_num)
 
-        CoWA_loss = CoWA_loss1 + CoWA_loss2
+        # CoWA_loss = mixup(images1, coeff[tar_idx], pred, netF, netB, netC, args)
+        
+        CoWA_loss1 = mixup(images1, coeff[tar_idx], pred, netF1,  netC1, args, iter_num)
+        CoWA_loss2 = mixup(images1, coeff[tar_idx], pred, netF2,  netC2, args, iter_num)
+
+        CoWA_loss = (CoWA_loss1 + CoWA_loss2) * 0.5
         # For warm up the start.
         if iter_num < args.warm * interval_iter + 1:
             CoWA_loss *= 1e-6
@@ -850,10 +731,8 @@ def train_target(args):
             print(log_str)
             
             netF1.eval()
-            # netB.eval()
             netC1.eval()   
             netF2.eval()
-            # netB.eval()
             netC2.eval()         
             cnt += 1
             with torch.no_grad():
@@ -864,16 +743,14 @@ def train_target(args):
 
             print('Evaluation iter:{}/{} finished.\n'.format(iter_num, max_iter))
             netF1.train()
-            # netB.train()
             netC1.train()
             netF2.train()
-            # netB.train()
             netC2.train()
 
     ####################################################################
     # if args.issave:   
     #     torch.save(netF.state_dict(), osp.join(args.output_dir, 'ckpt_F_' + args.prefix + ".pt"))
-    #     # torch.save(netB.state_dict(), osp.join(args.output_dir, 'ckpt_B_' + args.prefix + ".pt"))
+    #     torch.save(netB.state_dict(), osp.join(args.output_dir, 'ckpt_B_' + args.prefix + ".pt"))
     #     torch.save(netC.state_dict(), osp.join(args.output_dir, 'ckpt_C_' + args.prefix + ".pt"))
         
         
@@ -889,7 +766,7 @@ def train_target(args):
     plt.savefig(osp.join(args.output_dir,'png_{}.png'.format(args.index)))
     plt.close()
     
-    return netF1,  netC1
+    return None
 
 def print_args(args):
     s = "==========================================\n"
@@ -913,7 +790,7 @@ if __name__ == "__main__":
  
     parser.add_argument('--alpha', type=float, default=1)
     parser.add_argument('--warm', type=float, default=0.1)
-    parser.add_argument('--coeff', type=str, default='JMDS', choices=['LPG', 'JMDS', 'PPL','NO'])  # 'LPG' is 
+    parser.add_argument('--coeff', type=str, default='LPG', choices=['LPG', 'JMDS', 'PPL','NO'])  # 'LPG' is 
     parser.add_argument('--pickle', default=False, action='store_true')
     parser.add_argument('--lr_gamma', type=float, default=20.0)
     parser.add_argument('--lr_power', type=float, default=0.75)
@@ -937,8 +814,6 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, default='./seed/')
     parser.add_argument('--index', type=int, default=1)
     args = parser.parse_args()
-
-
 
         
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
